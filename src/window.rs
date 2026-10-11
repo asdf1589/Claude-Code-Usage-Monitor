@@ -554,6 +554,11 @@ fn taskbar_collision_action(state: &AppState) -> Option<usize> {
             .as_ref()
             .is_none_or(|p| p.nest != "floating")
     {
+        // A hidden or sliding auto-hide bar (Windows 10 moves it off-screen at
+        // full thickness) clips the widget only temporarily; never eject for it.
+        if !taskbar_collision::taskbar_shown(bounds) {
+            return None;
+        }
         let widget = native_interop::get_window_rect_safe(state.hwnd.to_hwnd())?;
         let locked = taskbar_lock_applies(state);
         // Visibility fallback needs only native geometry; an unavailable or

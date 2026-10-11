@@ -274,7 +274,18 @@ impl Reader {
     }
 }
 
-fn taskbar_shown(bounds: RECT) -> bool {
+pub(super) fn taskbar_shown(bounds: RECT) -> bool {
+    let monitors: Vec<RECT> = native_interop::find_monitors()
+        .iter()
+        .map(|monitor| monitor.rect)
+        .collect();
+    taskbar_fully_shown(bounds, &monitors)
+}
+
+/// Windows 11 auto-hide collapses the taskbar to a thin strip, while Windows 10
+/// keeps its full thickness and slides it off-screen. Either way the bar is
+/// only shown when its whole thickness is visible on some monitor.
+pub(super) fn taskbar_fully_shown(bounds: RECT, monitors: &[RECT]) -> bool {
     let horizontal = native_interop::is_taskbar_horizontal(bounds);
     let thickness = if horizontal {
         bounds.bottom - bounds.top
@@ -282,8 +293,8 @@ fn taskbar_shown(bounds: RECT) -> bool {
         bounds.right - bounds.left
     };
     thickness > 2
-        && native_interop::find_monitors().iter().any(|monitor| {
-            intersection(bounds, monitor.rect).is_some_and(|visible| {
+        && monitors.iter().any(|&monitor| {
+            intersection(bounds, monitor).is_some_and(|visible| {
                 let shown = if horizontal {
                     visible.bottom - visible.top
                 } else {

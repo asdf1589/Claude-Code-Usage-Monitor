@@ -425,9 +425,12 @@ pub(super) fn sync_theme_window_visibility() {
 pub(super) fn foreground_is_fullscreen_on_display(display_index: usize) -> bool {
     unsafe {
         let foreground = GetForegroundWindow();
+        // With an auto-hide taskbar a maximized window covers the whole monitor
+        // too, but it is not fullscreen.
         if foreground.is_invalid()
             || !IsWindowVisible(foreground).as_bool()
             || IsIconic(foreground).as_bool()
+            || IsZoomed(foreground).as_bool()
         {
             return false;
         }

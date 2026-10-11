@@ -166,6 +166,62 @@ fn taskbar_fallback_preserves_lock_and_auto_hide_behavior() {
 }
 
 #[test]
+fn windows_10_auto_hide_bar_is_not_shown_while_off_screen() {
+    let monitors = [
+        RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        },
+        RECT {
+            left: -1080,
+            top: -500,
+            right: 0,
+            bottom: 1420,
+        },
+    ];
+    let bar = RECT {
+        left: 0,
+        top: 1040,
+        right: 1920,
+        bottom: 1080,
+    };
+    assert!(taskbar_collision::taskbar_fully_shown(bar, &monitors));
+    // Windows 10 keeps the hidden bar at full thickness and slides it away,
+    // leaving a 2px reveal edge; every step of the slide is partially hidden.
+    for top in [1078, 1060, 1041] {
+        let hidden = RECT {
+            top,
+            bottom: top + 40,
+            ..bar
+        };
+        assert!(!taskbar_collision::taskbar_fully_shown(hidden, &monitors));
+    }
+    // Windows 11 collapses the hidden bar to a strip instead.
+    assert!(!taskbar_collision::taskbar_fully_shown(
+        RECT { top: 1078, ..bar },
+        &monitors
+    ));
+    // Hidden on the left edge of a secondary monitor.
+    let left = RECT {
+        left: -1080 - 38,
+        top: -500,
+        right: -1080 + 2,
+        bottom: 1420,
+    };
+    assert!(!taskbar_collision::taskbar_fully_shown(left, &monitors));
+    assert!(taskbar_collision::taskbar_fully_shown(
+        RECT {
+            left: -1080,
+            right: -1040,
+            ..left
+        },
+        &monitors
+    ));
+}
+
+#[test]
 fn classic_vertical_fits_above_the_tray_on_either_vertical_edge() {
     let theme: ThemeDocument =
         serde_json::from_str(include_str!("../themes/classic-vertical.json")).unwrap();
