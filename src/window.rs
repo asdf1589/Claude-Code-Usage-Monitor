@@ -233,6 +233,10 @@ fn open_web_url(hwnd: HWND, url: &str, failure_message: &'static str) {
 /// recreates the taskbar and wipes our tray-icon registration).
 const TASKBAR_WATCH_INTERVAL_SECS: u64 = 2;
 
+/// Watchdog result for a docked widget left at a stale position while its
+/// layout still fits the taskbar: reposition it instead of ejecting it.
+const TASKBAR_COLLISION_REPOSITION: usize = 2;
+
 static SUPPRESS_TRAY_REPOSITION_UNTIL: Mutex<Option<Instant>> = Mutex::new(None);
 
 /// Current system DPI (96 = 100% scaling, 144 = 150%, 192 = 200%, etc.)
@@ -521,13 +525,13 @@ fn spawn_taskbar_watchdog() {
         });
 
         if let Some((target_hwnd, action)) = collision_action {
+            let message = if action == TASKBAR_COLLISION_REPOSITION {
+                native_interop::WM_APP_TRAY_REPOSITION
+            } else {
+                native_interop::WM_APP_TASKBAR_COLLISION
+            };
             unsafe {
-                let _ = PostMessageW(
-                    Some(target_hwnd),
-                    native_interop::WM_APP_TASKBAR_COLLISION,
-                    WPARAM(action),
-                    LPARAM(0),
-                );
+                let _ = PostMessageW(Some(target_hwnd), message, WPARAM(action), LPARAM(0));
             }
         }
     });
@@ -540,8 +544,15 @@ fn taskbar_collision_action(state: &AppState) -> Option<usize> {
     let taskbar = state.taskbar_hwnd?.to_hwnd();
     let bounds = native_interop::get_taskbar_rect(taskbar)?;
     if state.auto_ejected {
-        let occupancy = taskbar_collision::cached(taskbar, bounds)?;
         let target = restored_dock_rect(state, taskbar, bounds)?;
+        // Lock ignores app buttons, so a locked widget returns as soon as the
+        // shown bar can hold it again; no accessibility sample is needed.
+        if taskbar_lock_applies(state) {
+            return (taskbar_collision::taskbar_shown(bounds)
+                && !positioning::taskbar_ejection_required(bounds, target, false, true))
+            .then_some(0);
+        }
+        let occupancy = taskbar_collision::cached(taskbar, bounds)?;
         let margin = if state.auto_ejected_for_capacity {
             0
         } else {
@@ -561,6 +572,16 @@ fn taskbar_collision_action(state: &AppState) -> Option<usize> {
         }
         let widget = native_interop::get_window_rect_safe(state.hwnd.to_hwnd())?;
         let locked = taskbar_lock_applies(state);
+        // A layout pass during an auto-hide slide can leave the widget offset
+        // from its parent. If the layout fits the bar where it is now, the
+        // widget only needs repositioning.
+        if positioning::taskbar_ejection_required(bounds, widget, false, locked)
+            && restored_dock_rect(state, taskbar, bounds).is_some_and(|target| {
+                !positioning::taskbar_ejection_required(bounds, target, false, locked)
+            })
+        {
+            return Some(TASKBAR_COLLISION_REPOSITION);
+        }
         // Visibility fallback needs only native geometry; an unavailable or
         // stale accessibility sample must not leave the widget clipped.
         let overlaps_apps = if positioning::taskbar_surface_is_clipped(bounds, widget) || locked {
@@ -2965,7 +2986,7 @@ fn redock_locked_widget(hwnd: HWND) {
             return;
         };
         // Locking suppresses collisions with app buttons, but must not restore
-        // an incompatible layout into a parent that would clip the widget.
+        // an incompatible layout into a parent that would hide the widget.
         if let Some(taskbar) = state.taskbar_hwnd.map(SendHwnd::to_hwnd) {
             let Some(bounds) = native_interop::get_taskbar_rect(taskbar) else {
                 return;
@@ -2973,7 +2994,7 @@ fn redock_locked_widget(hwnd: HWND) {
             let Some(target) = restored_dock_rect(state, taskbar, bounds) else {
                 return;
             };
-            if positioning::taskbar_surface_is_clipped(bounds, target) {
+            if positioning::taskbar_ejection_required(bounds, target, false, true) {
                 return;
             }
         }

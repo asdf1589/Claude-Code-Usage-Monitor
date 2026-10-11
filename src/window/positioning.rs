@@ -1024,13 +1024,28 @@ pub(super) fn taskbar_surface_is_clipped(taskbar: RECT, widget: RECT) -> bool {
         || widget.bottom > taskbar.bottom
 }
 
+/// Whether at least half of the widget lies inside the taskbar.
+pub(super) fn taskbar_surface_mostly_visible(taskbar: RECT, widget: RECT) -> bool {
+    let width = (widget.right.min(taskbar.right) - widget.left.max(taskbar.left)).max(0) as i64;
+    let height = (widget.bottom.min(taskbar.bottom) - widget.top.max(taskbar.top)).max(0) as i64;
+    let area = (widget.right - widget.left) as i64 * (widget.bottom - widget.top) as i64;
+    area > 0 && 2 * width * height >= area
+}
+
 pub(super) fn taskbar_ejection_required(
     taskbar: RECT,
     widget: RECT,
     overlaps_apps: bool,
     locked: bool,
 ) -> bool {
-    taskbar_surface_is_clipped(taskbar, widget) || (!locked && overlaps_apps)
+    if locked {
+        // A locked layout slightly taller than the bar, such as a 46px theme on
+        // Windows 10's 40px taskbar, stays docked with its edge clipped. Only a
+        // widget that would be mostly invisible falls back to floating.
+        return taskbar_surface_is_clipped(taskbar, widget)
+            && !taskbar_surface_mostly_visible(taskbar, widget);
+    }
+    taskbar_surface_is_clipped(taskbar, widget) || overlaps_apps
 }
 
 /// Choose a measured gap near the drag, including gaps left of centred apps.

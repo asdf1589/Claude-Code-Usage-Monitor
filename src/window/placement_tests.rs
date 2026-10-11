@@ -166,6 +166,42 @@ fn taskbar_fallback_preserves_lock_and_auto_hide_behavior() {
 }
 
 #[test]
+fn locked_layout_taller_than_a_windows_10_taskbar_stays_docked() {
+    // Windows 10 at 125%: a 40px bar is 50px, and a 46px theme is 58px.
+    let bar = RECT {
+        left: 0,
+        top: 1390,
+        right: 2560,
+        bottom: 1440,
+    };
+    let widget = RECT {
+        left: 1952,
+        top: 1382,
+        right: 2223,
+        bottom: 1440,
+    };
+    assert!(positioning::taskbar_surface_is_clipped(bar, widget));
+    assert!(positioning::taskbar_surface_mostly_visible(bar, widget));
+    assert!(!positioning::taskbar_ejection_required(
+        bar, widget, false, true
+    ));
+    // Without lock, the visibility fallback is unchanged.
+    assert!(positioning::taskbar_ejection_required(
+        bar, widget, false, false
+    ));
+    // A locked widget that would be mostly hidden still falls back.
+    let above = RECT {
+        top: 1340,
+        bottom: 1398,
+        ..widget
+    };
+    assert!(!positioning::taskbar_surface_mostly_visible(bar, above));
+    assert!(positioning::taskbar_ejection_required(
+        bar, above, false, true
+    ));
+}
+
+#[test]
 fn windows_10_auto_hide_bar_is_not_shown_while_off_screen() {
     let monitors = [
         RECT {
